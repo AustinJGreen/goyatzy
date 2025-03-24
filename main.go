@@ -421,7 +421,7 @@ func (g *game) doPly() bool {
 			}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
 		cancel()
 		move := moves[moveIdx]
@@ -468,6 +468,7 @@ func (g *game) clone() *game {
 
 func (g *game) runSimulation(ctx context.Context) {
 	var gameOver bool
+	// Start round.
 	for !gameOver {
 		select {
 		case <-ctx.Done():
@@ -479,7 +480,9 @@ func (g *game) runSimulation(ctx context.Context) {
 		g.curTurn.rollCnt = 1
 		pIdx := g.curPlayerIdx
 		ps := g.scorecards[pIdx]
-		for !gameOver {
+
+		// Start player turn.
+		for {
 			turnsLeft := ps.getTurnsLeft()
 			catMoves := ps.getNext(r)
 
@@ -517,6 +520,7 @@ func (g *game) runSimulation(ctx context.Context) {
 				g.scorecards[pIdx] = *next
 				g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
 				g.curTurn.reset()
+				break
 			}
 		}
 	}
@@ -538,7 +542,7 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 		panic("unsupported")
 	}
 	// Run N workers.
-	const workers = 32
+	const workers = 64
 
 	type result struct {
 		moveIdx int
@@ -557,9 +561,7 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 		wg.Add(1)
 		go func(ctx context.Context) {
 			defer wg.Done()
-			fmt.Println(1)
 			for moveIdx := range moveCh {
-				fmt.Println(2)
 				// run out game by randomly making moves...
 				// for example, at the start of the game,
 				// say we roll a large straight.
@@ -577,11 +579,9 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 
 				sg.runSimulation(ctx)
 				selfScore := sg.scorecards[playerIdx].score()
-				opponentScore := sg.scorecards[^playerIdx].score()
-				fmt.Println(3)
+				opponentScore := sg.scorecards[playerIdx^1].score()
 				select {
 				case <-ctx.Done():
-					fmt.Printf("exit\n")
 					return
 				case results <- result{
 					moveIdx: moveIdx,
@@ -589,7 +589,6 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 					won:     selfScore >= opponentScore, // anything that isn't a loss is a win?
 				}:
 				}
-				fmt.Println(4)
 			}
 		}(ctx)
 	}
@@ -605,7 +604,6 @@ think:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("HERE?")
 			break think
 		case r := <-results:
 			var wonInc uint64
@@ -618,8 +616,6 @@ think:
 				totalGames: cur.totalGames + 1,
 				totalWon:   cur.totalWon + wonInc,
 			}
-			next := statsByMove[r.moveIdx]
-			fmt.Printf("%d, %d, %d\n", next.totalScore, next.totalGames, next.totalWon)
 		case moveCh <- rand.Intn(len(moves)):
 		}
 	}
@@ -641,12 +637,17 @@ think:
 	}
 
 	sort.Slice(sMoves, func(i, j int) bool {
-		return sMoves[i].stats.totalScore > sMoves[j].stats.totalScore
+		avgScoreI := float64(sMoves[i].stats.totalScore) / float64(sMoves[i].stats.totalGames)
+		avgScoreJ := float64(sMoves[j].stats.totalScore) / float64(sMoves[j].stats.totalGames)
+		return avgScoreI > avgScoreJ
 	})
 
-	fmt.Print("waiting")
 	wg.Wait() // Wait for threads.
-	fmt.Printf("???")
+	fmt.Println("ranking:")
+	for i, _ := range sMoves {
+		avgScore := float64(sMoves[i].stats.totalScore) / float64(sMoves[i].stats.totalGames)
+		fmt.Printf("[%d]: (%.2f)\n", i, avgScore)
+	}
 	return sMoves[0].moveIdx
 }
 
