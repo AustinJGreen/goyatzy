@@ -329,3 +329,20 @@ func TestPlayerScorecardScore(t *testing.T) {
 		t.Errorf("player scorecard scores do not match: got %d; want %d", got, want)
 	}
 }
+
+/*
+func TestGameGetMovesForCurrentPlayer(t *testing.T) {
+	g := &game{
+		curTurn: new(turn),
+		scorecards: []playerScorecard{
+			playerScorecard{},
+		},
+	}
+
+	moves := g.getMovesForCurrentPlayer([5]die{DIE_SIX, DIE_FIVE, DIE_FOUR, DIE_THREE, DIE_ONE})
+	want := []*move{}
+	if diff := cmp.Diff(moves, want); diff != "" {
+		t.Errorf("moves do not match (-got, +want):\n%s", diff)
+	}
+}
+*/

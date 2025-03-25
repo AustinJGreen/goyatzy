@@ -1,11 +1,12 @@
 package main
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"log"
 	"math/bits"
-	"math/rand"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -87,8 +88,8 @@ func (d die) String() string {
 	}[d]
 }
 
-func randDie() die {
-	return die(1 + rand.Intn(6))
+func (g *game) randDie() die {
+	return die(1 + g.rng.IntN(6))
 }
 
 type roll [5]die
@@ -104,18 +105,31 @@ func (r roll) String() string {
 	return bldr.String()
 }
 
-func randRoll() roll {
-	return [5]die{randDie(), randDie(), randDie(), randDie(), randDie()}
+func hash(r []die) int {
+	counts := [6]int{}
+	for _, val := range r {
+		counts[val-1]++
+	}
+	base := 6
+	hash := 0
+	for i := 0; i < 6; i++ {
+		hash = hash*base + counts[i]
+	}
+	return hash
 }
 
-func randRollWithKept(hold []die) roll {
+func (g *game) randRoll() roll {
+	return [5]die{g.randDie(), g.randDie(), g.randDie(), g.randDie(), g.randDie()}
+}
+
+func (g *game) randRollWithKept(hold []die) roll {
 	var r [5]die
 	var i int
 	for ; i < len(hold); i++ {
 		r[i] = hold[i]
 	}
 	for ; i < 5; i++ {
-		r[i] = randDie()
+		r[i] = g.randDie()
 	}
 	return r
 }
@@ -267,7 +281,12 @@ func (ps playerScorecard) pretty() string {
 	bldr.WriteString(fmt.Sprintf("┃ %-17s ┃ %-10s ┃\n", "Category", "Score"))
 	bldr.WriteString("┣━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━━━━┫\n")
 	for cat, score := range ps.scoresByCategory {
-		bldr.WriteString(fmt.Sprintf("┃ %-17s ┃ %-10d ┃\n", category(cat), score))
+		catUsed := ps.catMask&(1<<cat) != 0
+		var catUsedStr string
+		if catUsed {
+			catUsedStr = "*"
+		}
+		bldr.WriteString(fmt.Sprintf("┃ %-17s ┃ %-10d ┃\n", fmt.Sprintf("%s%s", category(cat), catUsedStr), score))
 	}
 
 	bldr.WriteString("┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━┛")
@@ -362,9 +381,26 @@ func (t *turn) reset() {
 }
 
 type move struct {
-	hold      []die            // dice to keep
+	hold      []die // dice to keep
+	from      *playerScorecard
 	selection *playerScorecard // cat selection (if any)
 	reroll    bool             // whether to re-roll
+}
+
+func (m move) cat() category {
+	return category(bits.TrailingZeros16(m.selection.catMask ^ m.from.catMask)) // get what flipped
+}
+
+func (m move) String() string {
+	if m.reroll {
+		var hold []string
+		for _, d := range m.hold {
+			hold = append(hold, d.String())
+		}
+		return fmt.Sprintf("reroll holding %s", strings.Join(hold, ","))
+	}
+	c := m.cat()
+	return fmt.Sprintf("select %s for %d", c, m.selection.scoresByCategory[c])
 }
 
 type player interface {
@@ -376,84 +412,21 @@ type game struct {
 	curTurn      *turn
 	players      []player
 	curPlayerIdx int
+	rng          *rand.Rand
 }
 
-func newGame(players []player) *game {
+func newGame(rng *rand.Rand, players []player) *game {
 	return &game{
 		scorecards: make([]playerScorecard, len(players)),
 		curTurn:    new(turn),
 		players:    players,
-	}
-}
-
-// doPly runs a single ply for the current player. Returns whether
-// the game is over.
-func (g *game) doPly() bool {
-	r := randRoll()
-	g.curTurn.rollCnt = 1
-	pIdx := g.curPlayerIdx
-	ps := g.scorecards[pIdx]
-	for {
-		log.Printf("player [%d]: rolled %s", pIdx, r)
-
-		turnsLeft := ps.getTurnsLeft()
-		catMoves := ps.getNext(r)
-
-		var moves []*move
-		for _, catPs := range catMoves {
-			moves = append(moves, &move{selection: &catPs})
-		}
-
-		canRollAgain := g.curTurn.rollCnt < 3
-		if canRollAgain {
-			for _, c := range diceCombinations {
-				if len(c) == 5 {
-					continue // can't keep all and re-roll.
-				}
-				var hold []die
-				for _, idx := range c {
-					hold = append(hold, r[idx])
-				}
-				moves = append(moves, &move{
-					hold:   hold,
-					reroll: true,
-				})
-			}
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
-		cancel()
-		move := moves[moveIdx]
-		if move.reroll {
-			var hold []string
-			for _, d := range move.hold {
-				hold = append(hold, d.String())
-			}
-			log.Printf("player [%d]: selects to roll again, holding %s.", pIdx, strings.Join(hold, ","))
-			r = randRollWithKept(move.hold)
-			g.curTurn.rollCnt += 1
-			continue
-		} else {
-			next := move.selection
-			cat := category(bits.TrailingZeros16(next.catMask ^ ps.catMask)) // get what flipped
-			log.Print(next.pretty())
-			log.Printf("player [%d]: selects to choose category %s (+%d)", pIdx, cat, next.score()-ps.score())
-			log.Printf("player [%d]: has %d points", pIdx, next.score())
-			gameOver := pIdx == len(g.players)-1 && turnsLeft <= 1
-			g.scorecards[pIdx] = *next
-			g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
-			g.curTurn.reset()
-			return gameOver
-		}
+		rng:        rng,
 	}
 }
 
 func (g *game) clone() *game {
 	scorecards := make([]playerScorecard, len(g.scorecards))
-	for i, s := range g.scorecards {
-		scorecards[i] = s
-	}
+	copy(scorecards, g.scorecards)
 	turn := &turn{
 		currentRoll: g.curTurn.currentRoll,
 		rollCnt:     g.curTurn.rollCnt,
@@ -463,7 +436,42 @@ func (g *game) clone() *game {
 		curTurn:      turn,
 		players:      g.players, // not cloned (they don't have state)
 		curPlayerIdx: g.curPlayerIdx,
+		rng:          g.rng,
 	}
+}
+
+func (g *game) getMovesForCurrentPlayer(r roll) []*move {
+	pIdx := g.curPlayerIdx
+	ps := g.scorecards[pIdx]
+	catMoves := ps.getNext(r)
+
+	var moves []*move
+	for _, catPs := range catMoves {
+		moves = append(moves, &move{selection: &catPs, from: &ps})
+	}
+
+	canRollAgain := g.curTurn.rollCnt < 3
+	if canRollAgain {
+		mHashes := make(map[int]struct{})
+		for _, c := range diceCombinations {
+			if len(c) == 5 {
+				continue // can't keep all and re-roll.
+			}
+			var hold []die
+			for _, idx := range c {
+				hold = append(hold, r[idx])
+			}
+			hHash := hash(hold)
+			if _, ok := mHashes[hHash]; !ok {
+				mHashes[hHash] = struct{}{}
+				moves = append(moves, &move{
+					hold:   hold,
+					reroll: true,
+				})
+			}
+		}
+	}
+	return moves
 }
 
 func (g *game) runSimulation(ctx context.Context) {
@@ -475,7 +483,7 @@ func (g *game) runSimulation(ctx context.Context) {
 			return
 		default:
 		}
-		r := randRoll()
+		r := g.randRoll()
 
 		g.curTurn.rollCnt = 1
 		pIdx := g.curPlayerIdx
@@ -483,39 +491,16 @@ func (g *game) runSimulation(ctx context.Context) {
 
 		// Start player turn.
 		for {
-			turnsLeft := ps.getTurnsLeft()
-			catMoves := ps.getNext(r)
-
-			var moves []*move
-			for _, catPs := range catMoves {
-				moves = append(moves, &move{selection: &catPs})
-			}
-
-			canRollAgain := g.curTurn.rollCnt < 3
-			if canRollAgain {
-				for _, c := range diceCombinations {
-					if len(c) == 5 {
-						continue // can't keep all and re-roll.
-					}
-					var hold []die
-					for _, idx := range c {
-						hold = append(hold, r[idx])
-					}
-					moves = append(moves, &move{
-						hold:   hold,
-						reroll: true,
-					})
-				}
-			}
-
+			moves := g.getMovesForCurrentPlayer(r)
 			moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
 			move := moves[moveIdx]
 			if move.reroll {
-				r = randRollWithKept(move.hold)
+				r = g.randRollWithKept(move.hold)
 				g.curTurn.rollCnt += 1
 				continue
 			} else {
 				next := move.selection
+				turnsLeft := ps.getTurnsLeft()
 				gameOver = pIdx == len(g.players)-1 && turnsLeft <= 1
 				g.scorecards[pIdx] = *next
 				g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
@@ -526,29 +511,113 @@ func (g *game) runSimulation(ctx context.Context) {
 	}
 }
 
-type randomPlayer struct{}
+// doPly runs a single ply for the current player. Returns whether
+// the game is over.
+func (g *game) doPly() bool {
+	r := g.randRoll()
+	g.curTurn.rollCnt = 1
+	pIdx := g.curPlayerIdx
+	ps := g.scorecards[pIdx]
+	for {
+		log.Printf("player [%d]: rolled %s", pIdx, r)
+		moves := g.getMovesForCurrentPlayer(r)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
+		cancel()
+		move := moves[moveIdx]
+		log.Printf("player [%d]: %s", pIdx, move)
+		if move.reroll {
+			r = g.randRollWithKept(move.hold)
+			g.curTurn.rollCnt += 1
+			continue
+		} else {
+			next := move.selection
+			log.Print(next.pretty())
+			log.Printf("player [%d]: has %d points", pIdx, next.score())
+			turnsLeft := ps.getTurnsLeft()
+			gameOver := pIdx == len(g.players)-1 && turnsLeft <= 1
+			g.scorecards[pIdx] = *next
+			g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
+			g.curTurn.reset()
+			return gameOver
+		}
+	}
+}
 
-func (*randomPlayer) pickMove(_ context.Context, _ *game, moves []*move) int {
-	return rand.Intn(len(moves))
+type randomPlayer struct {
+	rng *rand.Rand
+}
+
+func (rp *randomPlayer) pickMove(_ context.Context, _ *game, moves []*move) int {
+	return rp.rng.IntN(len(moves))
 }
 
 type monteCarloPlayer struct {
+	rng *rand.Rand
+}
+
+type result struct {
+	moveIdx int
+	score   uint16
+	won     bool
+}
+
+// A MinHeap implements heap.Interface and holds Items.
+type minHeap []result
+
+func (h minHeap) Len() int            { return len(h) }
+func (h minHeap) Less(i, j int) bool  { return h[i].score < h[j].score } // Min-heap
+func (h minHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *minHeap) Push(x interface{}) { *h = append(*h, x.(result)) }
+func (h *minHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
+// topN stores the top N largest values seen.
+type topN struct {
+	heap  minHeap
+	limit int
+}
+
+func newTopN(n int) *topN {
+	h := make(minHeap, 0, n)
+	heap.Init(&h)
+	return &topN{
+		heap:  h,
+		limit: n,
+	}
+}
+
+func (t *topN) insert(r result) {
+	if t.heap.Len() < t.limit {
+		heap.Push(&t.heap, r)
+	} else if r.score > t.heap[0].score {
+		t.heap[0] = r
+		heap.Fix(&t.heap, 0)
+	}
+}
+
+func (tn topN) avg() float64 {
+	var total uint64
+	for _, r := range tn.heap {
+		total += uint64(r.score)
+	}
+	return float64(total) / float64(tn.heap.Len())
 }
 
 // montecarlo runs a monte-carlo simulation, returning which move to pick or whether
 // to re-roll given a list of moves and a context.
-func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) int {
+func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) int {
+	start := time.Now()
 	if len(g.players) != 2 {
 		panic("unsupported")
 	}
 	// Run N workers.
 	const workers = 64
-
-	type result struct {
-		moveIdx int
-		score   uint16
-		won     bool
-	}
 
 	var wg sync.WaitGroup
 	results := make(chan result)
@@ -573,8 +642,8 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 				// on probability.
 				sg := g.clone()
 				sg.players = []player{
-					new(randomPlayer),
-					new(randomPlayer),
+					&randomPlayer{mcp.rng},
+					&randomPlayer{mcp.rng},
 				}
 
 				sg.runSimulation(ctx)
@@ -585,7 +654,7 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 					return
 				case results <- result{
 					moveIdx: moveIdx,
-					score:   sg.scorecards[playerIdx].score(),
+					score:   selfScore,
 					won:     selfScore >= opponentScore, // anything that isn't a loss is a win?
 				}:
 				}
@@ -597,9 +666,17 @@ func (*monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*move) i
 		totalScore uint64
 		totalGames uint64
 		totalWon   uint64
+		maxScore   uint16
+		topScores  *topN
 	}
 
-	statsByMove := make(map[int]stats)
+	statsByMove := make(map[int]*stats)
+	for i := range moves {
+		statsByMove[i] = &stats{
+			topScores: newTopN(500),
+		}
+	}
+
 think:
 	for {
 		select {
@@ -610,22 +687,23 @@ think:
 			if r.won {
 				wonInc = 1
 			}
-			cur := statsByMove[r.moveIdx]
-			statsByMove[r.moveIdx] = stats{
-				totalScore: cur.totalScore + uint64(r.score),
-				totalGames: cur.totalGames + 1,
-				totalWon:   cur.totalWon + wonInc,
-			}
-		case moveCh <- rand.Intn(len(moves)):
+			s := statsByMove[r.moveIdx]
+			s.totalScore += uint64(r.score)
+			s.totalGames += 1
+			s.totalWon += wonInc
+			s.maxScore = max(s.maxScore, r.score)
+			s.topScores.insert(r)
+		case moveCh <- mcp.rng.IntN(len(moves)):
 		}
 	}
 	close(moveCh)
 
 	type moveWithStats struct {
 		moveIdx int
-		stats   stats
+		stats   *stats
 	}
 
+	var totalGamesExplored uint64
 	var sMoves []moveWithStats
 
 	// Evaluate options.
@@ -634,28 +712,32 @@ think:
 			moveIdx: moveIdx,
 			stats:   stats,
 		})
+		totalGamesExplored += stats.totalGames
 	}
 
 	sort.Slice(sMoves, func(i, j int) bool {
-		avgScoreI := float64(sMoves[i].stats.totalScore) / float64(sMoves[i].stats.totalGames)
-		avgScoreJ := float64(sMoves[j].stats.totalScore) / float64(sMoves[j].stats.totalGames)
-		return avgScoreI > avgScoreJ
+		is, js := sMoves[i].stats, sMoves[j].stats
+		return is.topScores.avg() > js.topScores.avg()
 	})
 
 	wg.Wait() // Wait for threads.
-	fmt.Println("ranking:")
-	for i, _ := range sMoves {
-		avgScore := float64(sMoves[i].stats.totalScore) / float64(sMoves[i].stats.totalGames)
-		fmt.Printf("[%d]: (%.2f)\n", i, avgScore)
+	took := time.Since(start)
+	fmt.Printf("Stopped. Explored %d games (%.2f g/s)\n", totalGamesExplored, float64(totalGamesExplored)/took.Seconds())
+	for i, sm := range sMoves {
+		stats := sm.stats
+		avgScore := float64(stats.totalScore) / float64(stats.totalGames)
+		move := moves[sm.moveIdx]
+		fmt.Printf("[%d]: %s (%.2f avg) (%d max) (%.2f top n avg)\n", i, move, avgScore, stats.maxScore, stats.topScores.avg())
 	}
 	return sMoves[0].moveIdx
 }
 
 func main() {
 	log.SetFlags(0)
+	r := rand.New(rand.NewPCG(uint64(1234), 0))
 
 	// just simulation for now
-	g := newGame([]player{new(randomPlayer), new(monteCarloPlayer)})
+	g := newGame(r, []player{&randomPlayer{r}, &monteCarloPlayer{r}})
 
 	// cardgames.io has human start first.
 	for !g.doPly() {
