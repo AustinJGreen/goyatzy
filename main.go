@@ -310,6 +310,26 @@ func (ps playerScorecard) score() uint16 {
 	return total
 }
 
+func (ps playerScorecard) maxTheoreticalScore() uint16 {
+	var filledTotal uint16
+	for _, score := range ps.scoresByCategory {
+		filledTotal += score
+	}
+
+	// For every empty category, assume we score the best possible score.
+	var theoreticalMaxLeft uint16
+	unusedMask := ps.catMask
+	for unusedMask > 0 {
+		cat := category(bits.TrailingZeros16(unusedMask))
+		switch cat {
+		case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
+		}
+		unusedMask |= (1 << cat)
+	}
+
+	return filledTotal + theoreticalMaxLeft
+}
+
 func (ps playerScorecard) getTurnsLeft() int {
 	return 13 - bits.OnesCount16(ps.catMask)
 }
@@ -726,8 +746,9 @@ think:
 	for i, sm := range sMoves {
 		stats := sm.stats
 		avgScore := float64(stats.totalScore) / float64(stats.totalGames)
+		wonPct := float64(stats.totalWon) / float64(stats.totalGames)
 		move := moves[sm.moveIdx]
-		fmt.Printf("[%d]: %s (%.2f avg) (%d max) (%.2f top n avg)\n", i, move, avgScore, stats.maxScore, stats.topScores.avg())
+		fmt.Printf("[%d]: %s (%.2f avg) (%d max) (%.2f top n avg) (%.2f won pct)\n", i, move, avgScore, stats.maxScore, stats.topScores.avg(), wonPct)
 	}
 	return sMoves[0].moveIdx
 }
