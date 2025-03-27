@@ -44,135 +44,10 @@ import (
 // - pools for object allocation
 // - precomputed scores per unique roll (could hash roll)
 
-// []{}
-var diceCombinations [][]int
-
-func init() {
-	// We want
-	// 0b11111
-	for i := 0; i <= 0b11111; i++ {
-		var indices []int
-		for j := 0; j < 5; j++ {
-			if i&(1<<j) != 0 {
-				indices = append(indices, j)
-			}
-		}
-		if len(indices) == 0 {
-			continue
-		}
-		diceCombinations = append(diceCombinations, indices)
-	}
-}
-
-type die byte
-
-const (
-	DIE_UNSET die = iota
-	DIE_ONE
-	DIE_TWO
-	DIE_THREE
-	DIE_FOUR
-	DIE_FIVE
-	DIE_SIX
-)
-
-func (d die) String() string {
-	return [...]string{
-		"unset",
-		"one",
-		"two",
-		"three",
-		"four",
-		"five",
-		"six",
-	}[d]
-}
-
-func (g *game) randDie() die {
-	return die(1 + g.rng.IntN(6))
-}
-
-type roll [5]die
-
-func (r roll) String() string {
-	var bldr strings.Builder
-	for i, d := range r {
-		if i != 0 {
-			bldr.WriteRune(',')
-		}
-		bldr.WriteString(d.String())
-	}
-	return bldr.String()
-}
-
-func hash(r []die) int {
-	counts := [6]int{}
-	for _, val := range r {
-		counts[val-1]++
-	}
-	base := 6
-	hash := 0
-	for i := 0; i < 6; i++ {
-		hash = hash*base + counts[i]
-	}
-	return hash
-}
-
-func (g *game) randRoll() roll {
-	return [5]die{g.randDie(), g.randDie(), g.randDie(), g.randDie(), g.randDie()}
-}
-
-func (g *game) randRollWithKept(hold []die) roll {
-	var r [5]die
-	var i int
-	for ; i < len(hold); i++ {
-		r[i] = hold[i]
-	}
-	for ; i < 5; i++ {
-		r[i] = g.randDie()
-	}
-	return r
-}
-
-type category uint16
-
-const (
-	CAT_ONES = iota
-	CAT_TWOS
-	CAT_THREES
-	CAT_FOURS
-	CAT_FIVES
-	CAT_SIXES
-	CAT_THREE_OF_A_KIND
-	CAT_FOUR_OF_A_KIND
-	CAT_FULL_HOUSE
-	CAT_SMALL_STRAIGHT
-	CAT_LARGE_STRAIGHT
-	CAT_CHANCE
-	CAT_YATZY
-)
-
-func (c category) String() string {
-	return [13]string{
-		"ones",
-		"twos",
-		"threes",
-		"fours",
-		"fives",
-		"sixes",
-		"three of a kind",
-		"four of a kind",
-		"full house",
-		"small straight",
-		"large straight",
-		"chance",
-		"yatzy",
-	}[c]
-}
-
 // getRollScoreForCategory returns the score
 // that a roll would earn for a category.
-func getRollScoreForCategory(r roll, c category) uint16 {
+func getRollScoreForCategory(r2 rollV2, c category) uint16 {
+	r := r2.dice()
 	switch c {
 	case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
 		var score uint16
@@ -266,6 +141,187 @@ func getRollScoreForCategory(r roll, c category) uint16 {
 	}
 }
 
+var diceCombinations [][]int
+
+// might want to consider also iterating on this and just doing rand on some entire slice.
+// var rollToHash map[roll]uint16
+// var rollHashScores map[uint16][13]uint16
+
+type rollV2 uint16
+
+func newRollV2(a, b, c, d, e die) rollV2 {
+	return rollV2(uint16(a&7) | uint16(b&7)<<3 | uint16(c&7)<<6 | uint16(d&7)<<9 | uint16(e&7)<<12)
+}
+
+func newRollV2_2(d [5]die) rollV2 {
+	return newRollV2(d[0], d[1], d[2], d[3], d[4])
+}
+
+func (r2 rollV2) die(idx int) die {
+	return die((r2 >> (idx * 3)) & 7)
+}
+
+func (r2 rollV2) dice() [5]die {
+	a := die(r2 & 7)
+	b := die((r2 >> 3) & 7)
+	c := die((r2 >> 6) & 7)
+	d := die((r2 >> 9) & 7)
+	e := die((r2 >> 12) & 7)
+	return [5]die{a, b, c, d, e}
+}
+
+func (r2 rollV2) String() string {
+	a := die(r2 & 7)
+	b := die((r2 >> 3) & 7)
+	c := die((r2 >> 6) & 7)
+	d := die((r2 >> 9) & 7)
+	e := die((r2 >> 12) & 7)
+	return fmt.Sprintf("%s,%s,%s,%s,%s", a, b, c, d, e)
+}
+
+var rolls []rollV2
+var scoresByRoll map[rollV2][13]uint16
+
+func getDiceCombos(n int) [][]die {
+	if n == 0 {
+		return nil
+	} else if n == 1 {
+		return [][]die{{1}, {2}, {3}, {4}, {5}, {6}}
+	}
+
+	var next [][]die
+	left := getDiceCombos(n - 1)
+	for i := range 6 {
+		d := die(i + 1)
+		for _, l := range left {
+			next = append(next, append([]die{d}, l...))
+		}
+	}
+	return next
+}
+
+func init() {
+	// We want
+	// 0b11111
+	for i := 0; i <= 0b11111; i++ {
+		var indices []int
+		for j := 0; j < 5; j++ {
+			if i&(1<<j) != 0 {
+				indices = append(indices, j)
+			}
+		}
+		if len(indices) == 0 {
+			continue
+		}
+		diceCombinations = append(diceCombinations, indices)
+	}
+
+	scoresByRoll = make(map[rollV2][13]uint16)
+	for _, combos := range getDiceCombos(5) {
+		r2 := newRollV2(combos[0], combos[1], combos[2], combos[3], combos[4])
+		rolls = append(rolls, r2)
+
+		var scores [13]uint16
+		for c := CAT_ONES; c <= CAT_YATZY; c++ {
+			scores[c] = getRollScoreForCategory(r2, category(c))
+		}
+		scoresByRoll[r2] = scores
+	}
+}
+
+type die byte
+
+const (
+	DIE_UNSET die = iota
+	DIE_ONE
+	DIE_TWO
+	DIE_THREE
+	DIE_FOUR
+	DIE_FIVE
+	DIE_SIX
+)
+
+func (d die) String() string {
+	return [...]string{
+		"unset",
+		"one",
+		"two",
+		"three",
+		"four",
+		"five",
+		"six",
+	}[d]
+}
+
+func (g *game) randDie() die {
+	return die(1 + g.rng.IntN(6))
+}
+
+func hash(r []die) int {
+	counts := [6]int{}
+	for _, val := range r {
+		counts[val-1]++
+	}
+	base := 6
+	hash := 0
+	for i := 0; i < 6; i++ {
+		hash = hash*base + counts[i]
+	}
+	return hash
+}
+
+func (g *game) randRollV2() rollV2 {
+	return rolls[g.rng.IntN(len(rolls))]
+}
+
+func (g *game) randRollV2WithKept(hold []die) rollV2 {
+	var r [5]die
+	var i int
+	for ; i < len(hold); i++ {
+		r[i] = hold[i]
+	}
+	for ; i < 5; i++ {
+		r[i] = g.randDie()
+	}
+	return newRollV2_2(r)
+}
+
+type category uint16
+
+const (
+	CAT_ONES = iota
+	CAT_TWOS
+	CAT_THREES
+	CAT_FOURS
+	CAT_FIVES
+	CAT_SIXES
+	CAT_THREE_OF_A_KIND
+	CAT_FOUR_OF_A_KIND
+	CAT_FULL_HOUSE
+	CAT_SMALL_STRAIGHT
+	CAT_LARGE_STRAIGHT
+	CAT_CHANCE
+	CAT_YATZY
+)
+
+func (c category) String() string {
+	return [13]string{
+		"ones",
+		"twos",
+		"threes",
+		"fours",
+		"fives",
+		"sixes",
+		"three of a kind",
+		"four of a kind",
+		"full house",
+		"small straight",
+		"large straight",
+		"chance",
+		"yatzy",
+	}[c]
+}
+
 const AllFilled = 0x1FFF // 13 categories
 
 type playerScorecard struct {
@@ -316,15 +372,46 @@ func (ps playerScorecard) maxTheoreticalScore() uint16 {
 		filledTotal += score
 	}
 
+	var upperScoreTotal uint16
+	var maxUpperScoreLeft uint16
+	for _, cat := range []category{
+		CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES,
+	} {
+		if ps.catMask&(1<<cat) != 0 {
+			upperScoreTotal += ps.scoresByCategory[cat]
+		} else {
+			maxUpperScoreLeft += uint16(die(cat+1) * 5)
+		}
+	}
+
+	if upperScoreTotal+maxUpperScoreLeft >= 63 {
+		filledTotal += 35
+	}
+
 	// For every empty category, assume we score the best possible score.
 	var theoreticalMaxLeft uint16
-	unusedMask := ps.catMask
+	unusedMask := (^ps.catMask & 0x1FFF)
 	for unusedMask > 0 {
 		cat := category(bits.TrailingZeros16(unusedMask))
 		switch cat {
 		case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
+			val := die(cat + 1) // hack: based on cat_xxx index.
+			theoreticalMaxLeft += uint16(val * 5)
+		case CAT_THREE_OF_A_KIND, CAT_FOUR_OF_A_KIND, CAT_SMALL_STRAIGHT, CAT_CHANCE:
+			theoreticalMaxLeft += 30
+		case CAT_LARGE_STRAIGHT:
+			theoreticalMaxLeft += 40
+		case CAT_FULL_HOUSE:
+			theoreticalMaxLeft += 25
+		case CAT_YATZY:
+			movesLeft := ps.getTurnsLeft()
+			theoreticalMaxLeft += uint16(50 + ((movesLeft - 1) * 100))
 		}
-		unusedMask |= (1 << cat)
+		unusedMask ^= (1 << cat)
+	}
+	if ps.scoresByCategory[CAT_YATZY] > 0 {
+		movesLeft := ps.getTurnsLeft()
+		theoreticalMaxLeft += uint16((movesLeft - 1) * 100)
 	}
 
 	return filledTotal + theoreticalMaxLeft
@@ -344,15 +431,15 @@ const (
 
 // update gets the next scorecard calculated after a roll and category are chosen.
 // This function does not check that the category has not been used.
-func (ps playerScorecard) update(r roll, c category) playerScorecard {
+func (ps playerScorecard) update(r rollV2, c category) playerScorecard {
 	// debug: check catMask does not have c set.
 	var next playerScorecard
 	next.catMask = ps.catMask
 	next.scoresByCategory = ps.scoresByCategory
-	next.scoresByCategory[c] = getRollScoreForCategory(r, c)
+	next.scoresByCategory[c] = scoresByRoll[r][c]
 	next.catMask = ps.catMask | uint16(1<<c)
 
-	rs := getRollScoreForCategory(r, CAT_YATZY)
+	rs := scoresByRoll[r][CAT_YATZY]
 	if rs == 0 {
 		return next
 	}
@@ -363,6 +450,7 @@ func (ps playerScorecard) update(r roll, c category) playerScorecard {
 
 	next.scoresByCategory[CAT_YATZY] += yatzyBonus
 	switch c {
+	// other c's already covered -- add ones that joker helps.
 	case CAT_FULL_HOUSE:
 		next.scoresByCategory[c] = 25
 	case CAT_SMALL_STRAIGHT:
@@ -376,10 +464,10 @@ func (ps playerScorecard) update(r roll, c category) playerScorecard {
 // getNext checks all available scorecards that would be
 // available for a given roll. The number of scorecards
 // returned is N+1 where N is the number of turns left.
-func (ps playerScorecard) getNext(r roll) []playerScorecard {
+func (ps playerScorecard) getNext(r rollV2) []playerScorecard {
 	turnsLeft := ps.getTurnsLeft()
 	scorecards := make([]playerScorecard, turnsLeft)
-	cur := ^ps.catMask
+	cur := (^ps.catMask & 0x1FFF)
 	for i := 0; i < turnsLeft; i++ {
 		idx := bits.TrailingZeros16(cur)
 		cur ^= (1 << idx)
@@ -389,7 +477,7 @@ func (ps playerScorecard) getNext(r roll) []playerScorecard {
 }
 
 type turn struct {
-	currentRoll roll
+	currentRoll rollV2
 	// the number of rolls used in a turn (up to 3).
 	// a turn that has just started will have a rollCnt
 	// of zero.
@@ -460,7 +548,7 @@ func (g *game) clone() *game {
 	}
 }
 
-func (g *game) getMovesForCurrentPlayer(r roll) []*move {
+func (g *game) getMovesForCurrentPlayer(r rollV2) []*move {
 	pIdx := g.curPlayerIdx
 	ps := g.scorecards[pIdx]
 	catMoves := ps.getNext(r)
@@ -479,7 +567,7 @@ func (g *game) getMovesForCurrentPlayer(r roll) []*move {
 			}
 			var hold []die
 			for _, idx := range c {
-				hold = append(hold, r[idx])
+				hold = append(hold, r.die(idx))
 			}
 			hHash := hash(hold)
 			if _, ok := mHashes[hHash]; !ok {
@@ -494,6 +582,22 @@ func (g *game) getMovesForCurrentPlayer(r roll) []*move {
 	return moves
 }
 
+func (g *game) doMove(m *move) bool {
+	if m.reroll {
+		g.curTurn.currentRoll = g.randRollV2WithKept(m.hold)
+		g.curTurn.rollCnt += 1
+		return false
+	}
+	pIdx := g.curPlayerIdx
+	next := m.selection
+	turnsLeft := g.scorecards[pIdx].getTurnsLeft()
+	gameOver := pIdx == len(g.players)-1 && turnsLeft <= 1
+	g.scorecards[pIdx] = *next
+	g.curPlayerIdx = (pIdx + 1) % len(g.players)
+	g.curTurn.reset()
+	return gameOver
+}
+
 func (g *game) runSimulation(ctx context.Context) {
 	var gameOver bool
 	// Start round.
@@ -503,30 +607,16 @@ func (g *game) runSimulation(ctx context.Context) {
 			return
 		default:
 		}
-		r := g.randRoll()
-
-		g.curTurn.rollCnt = 1
-		pIdx := g.curPlayerIdx
-		ps := g.scorecards[pIdx]
 
 		// Start player turn.
-		for {
-			moves := g.getMovesForCurrentPlayer(r)
-			moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
+		g.curTurn.currentRoll = g.randRollV2()
+		g.curTurn.rollCnt = 1
+		curPlayer := g.curPlayerIdx
+		for g.curPlayerIdx == curPlayer && !gameOver {
+			moves := g.getMovesForCurrentPlayer(g.curTurn.currentRoll)
+			moveIdx := g.players[curPlayer].pickMove(ctx, g, moves)
 			move := moves[moveIdx]
-			if move.reroll {
-				r = g.randRollWithKept(move.hold)
-				g.curTurn.rollCnt += 1
-				continue
-			} else {
-				next := move.selection
-				turnsLeft := ps.getTurnsLeft()
-				gameOver = pIdx == len(g.players)-1 && turnsLeft <= 1
-				g.scorecards[pIdx] = *next
-				g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
-				g.curTurn.reset()
-				break
-			}
+			gameOver = g.doMove(move)
 		}
 	}
 }
@@ -534,34 +624,27 @@ func (g *game) runSimulation(ctx context.Context) {
 // doPly runs a single ply for the current player. Returns whether
 // the game is over.
 func (g *game) doPly() bool {
-	r := g.randRoll()
+	// Start player turn.
+	g.curTurn.currentRoll = g.randRollV2()
 	g.curTurn.rollCnt = 1
-	pIdx := g.curPlayerIdx
-	ps := g.scorecards[pIdx]
-	for {
-		log.Printf("player [%d]: rolled %s", pIdx, r)
-		moves := g.getMovesForCurrentPlayer(r)
+	curPlayer := g.curPlayerIdx
+	for g.curPlayerIdx == curPlayer {
+		log.Printf("player [%d]: rolled %s", curPlayer, g.curTurn.currentRoll)
+		moves := g.getMovesForCurrentPlayer(g.curTurn.currentRoll)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		moveIdx := g.players[g.curPlayerIdx].pickMove(ctx, g, moves)
+		moveIdx := g.players[curPlayer].pickMove(ctx, g, moves)
 		cancel()
 		move := moves[moveIdx]
-		log.Printf("player [%d]: %s", pIdx, move)
-		if move.reroll {
-			r = g.randRollWithKept(move.hold)
-			g.curTurn.rollCnt += 1
-			continue
-		} else {
-			next := move.selection
-			log.Print(next.pretty())
-			log.Printf("player [%d]: has %d points", pIdx, next.score())
-			turnsLeft := ps.getTurnsLeft()
-			gameOver := pIdx == len(g.players)-1 && turnsLeft <= 1
-			g.scorecards[pIdx] = *next
-			g.curPlayerIdx = (g.curPlayerIdx + 1) % len(g.players)
-			g.curTurn.reset()
-			return gameOver
+		log.Printf("player [%d]: %s", curPlayer, move)
+		if !move.reroll {
+			log.Print(move.selection.pretty())
+			log.Printf("player [%d]: has %d points", curPlayer, move.selection.score())
+		}
+		if g.doMove(move) {
+			return true
 		}
 	}
+	return false
 }
 
 type randomPlayer struct {
@@ -637,12 +720,16 @@ func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*mov
 		panic("unsupported")
 	}
 	// Run N workers.
-	const workers = 64
+	const workers = 100
 
 	var wg sync.WaitGroup
 	results := make(chan result)
-	moveCh := make(chan int)
-	defer close(results)
+	done := make(chan struct{})
+	defer close(done)
+
+	// organize selections by used dice.
+	// i.e. we know that using a single 3 from a first dice roll will have a worst-opportunity cost
+	// than re-rolling with any 3 as we could always fallback and select our original choice.
 
 	playerIdx := g.curPlayerIdx
 	log.Printf("Thinking for player %d with %d workers.", playerIdx, workers)
@@ -650,23 +737,18 @@ func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*mov
 		wg.Add(1)
 		go func(ctx context.Context) {
 			defer wg.Done()
-			for moveIdx := range moveCh {
-				// run out game by randomly making moves...
-				// for example, at the start of the game,
-				// say we roll a large straight.
-				// We will explore every move, including taking it.
-				// If we don't though, do we finish with a higher average score?
-				// The early stages will probably not have a high average, but later
-				// they might become more accurate.
-				// TODO: Create HeuristicPlayer who chooses things based
-				// on probability.
+			for {
+				moveIdx := g.rng.IntN(len(moves))
+
 				sg := g.clone()
 				sg.players = []player{
 					&randomPlayer{mcp.rng},
 					&randomPlayer{mcp.rng},
 				}
+				if !sg.doMove(moves[moveIdx]) {
+					sg.runSimulation(ctx)
+				}
 
-				sg.runSimulation(ctx)
 				selfScore := sg.scorecards[playerIdx].score()
 				opponentScore := sg.scorecards[playerIdx^1].score()
 				select {
@@ -693,7 +775,7 @@ func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*mov
 	statsByMove := make(map[int]*stats)
 	for i := range moves {
 		statsByMove[i] = &stats{
-			topScores: newTopN(500),
+			topScores: newTopN(50),
 		}
 	}
 
@@ -713,10 +795,8 @@ think:
 			s.totalWon += wonInc
 			s.maxScore = max(s.maxScore, r.score)
 			s.topScores.insert(r)
-		case moveCh <- mcp.rng.IntN(len(moves)):
 		}
 	}
-	close(moveCh)
 
 	type moveWithStats struct {
 		moveIdx int
@@ -738,6 +818,7 @@ think:
 	sort.Slice(sMoves, func(i, j int) bool {
 		is, js := sMoves[i].stats, sMoves[j].stats
 		return is.topScores.avg() > js.topScores.avg()
+		// return is.maxScore > js.maxScore
 	})
 
 	wg.Wait() // Wait for threads.
@@ -748,14 +829,14 @@ think:
 		avgScore := float64(stats.totalScore) / float64(stats.totalGames)
 		wonPct := float64(stats.totalWon) / float64(stats.totalGames)
 		move := moves[sm.moveIdx]
-		fmt.Printf("[%d]: %s (%.2f avg) (%d max) (%.2f top n avg) (%.2f won pct)\n", i, move, avgScore, stats.maxScore, stats.topScores.avg(), wonPct)
+		fmt.Printf("[%d]: %s (%d games) (%.2f avg) (%d max) (%.2f top n avg) (%.2f won pct)\n", i, move, stats.totalGames, avgScore, stats.maxScore, stats.topScores.avg(), wonPct)
 	}
 	return sMoves[0].moveIdx
 }
 
 func main() {
 	log.SetFlags(0)
-	r := rand.New(rand.NewPCG(uint64(1234), 0))
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 
 	// just simulation for now
 	g := newGame(r, []player{&randomPlayer{r}, &monteCarloPlayer{r}})

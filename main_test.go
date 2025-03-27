@@ -7,8 +7,8 @@ import (
 )
 
 func TestGetRollScoreForCategory(t *testing.T) {
-	for _, tt := range []struct {
-		r roll
+	for i, tt := range []struct {
+		r [5]die
 		c category
 		w uint16
 	}{
@@ -133,9 +133,10 @@ func TestGetRollScoreForCategory(t *testing.T) {
 			w: 0,
 		},
 	} {
-		got := getRollScoreForCategory(tt.r, tt.c)
+		r2 := newRollV2_2(tt.r)
+		got := scoresByRoll[r2][tt.c]
 		if got != tt.w {
-			t.Errorf("roll score does not match: got %d; want %d", got, tt.w)
+			t.Errorf("roll score does not match: input[%d] %+v, %d; got %d; want %d", i, r2.dice(), r2, got, tt.w)
 		}
 	}
 }
@@ -146,8 +147,9 @@ func TestPlayerScorecardUpdate(t *testing.T) {
 	}
 	var ps playerScorecard
 
-	// 1. 1, 2, 3, 4, 5 - large straight
-	got := ps.update([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE}, CAT_LARGE_STRAIGHT)
+	// 1, 2, 3, 4, 5 - large straight
+
+	got := ps.update(newRollV2_2([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE}), CAT_LARGE_STRAIGHT)
 	if diff := cmp.Diff(ps, playerScorecard{}, opts...); diff != "" {
 		t.Errorf("original scorecard was modified (-got, +want):\n%s", diff)
 	}
@@ -162,7 +164,7 @@ func TestPlayerScorecardUpdate(t *testing.T) {
 	}
 
 	// 2. 1, 1, 1, 1, 1 - take ones
-	got = got.update([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE}, CAT_ONES)
+	got = got.update(newRollV2_2([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE}), CAT_ONES)
 	want = playerScorecard{
 		scoresByCategory: [13]uint16{
 			CAT_ONES:           5,
@@ -175,7 +177,7 @@ func TestPlayerScorecardUpdate(t *testing.T) {
 	}
 
 	// 3. 2, 2, 2, 2, 2 - take yatzy
-	got = got.update([5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO}, CAT_YATZY)
+	got = got.update(newRollV2_2([5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO}), CAT_YATZY)
 	want = playerScorecard{
 		scoresByCategory: [13]uint16{
 			CAT_ONES:           5,
@@ -189,7 +191,7 @@ func TestPlayerScorecardUpdate(t *testing.T) {
 	}
 
 	// 4. All six - use joker on full house + see 100 bonus
-	got = got.update([5]die{DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX}, CAT_FULL_HOUSE)
+	got = got.update(newRollV2_2([5]die{DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX}), CAT_FULL_HOUSE)
 	want = playerScorecard{
 		scoresByCategory: [13]uint16{
 			CAT_ONES:           5,
@@ -222,7 +224,7 @@ func TestPlayerScorecardGetNext(t *testing.T) {
 		cmp.AllowUnexported(playerScorecard{}),
 	}
 	var ps playerScorecard
-	got := ps.getNext([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE})
+	got := ps.getNext(newRollV2_2([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE}))
 	want := []playerScorecard{
 		playerScorecard{
 			scoresByCategory: [13]uint16{
@@ -330,7 +332,6 @@ func TestPlayerScorecardScore(t *testing.T) {
 	}
 }
 
-/*
 func TestGameGetMovesForCurrentPlayer(t *testing.T) {
 	g := &game{
 		curTurn: new(turn),
@@ -339,10 +340,139 @@ func TestGameGetMovesForCurrentPlayer(t *testing.T) {
 		},
 	}
 
-	moves := g.getMovesForCurrentPlayer([5]die{DIE_SIX, DIE_FIVE, DIE_FOUR, DIE_THREE, DIE_ONE})
-	want := []*move{}
-	if diff := cmp.Diff(moves, want); diff != "" {
+	moves := g.getMovesForCurrentPlayer(newRollV2_2([5]die{DIE_SIX, DIE_FIVE, DIE_FOUR, DIE_THREE, DIE_ONE}))
+	var movesStr []string
+	for _, m := range moves {
+		movesStr = append(movesStr, m.String())
+	}
+
+	want := []string{
+		"select ones for 1",
+		"select twos for 0",
+		"select threes for 3",
+		"select fours for 4",
+		"select fives for 5",
+		"select sixes for 6",
+		"select three of a kind for 0",
+		"select four of a kind for 0",
+		"select full house for 0",
+		"select small straight for 30",
+		"select large straight for 0",
+		"select chance for 19",
+		"select yatzy for 0",
+		"reroll holding six",
+		"reroll holding five",
+		"reroll holding six,five",
+		"reroll holding four",
+		"reroll holding six,four",
+		"reroll holding five,four",
+		"reroll holding six,five,four",
+		"reroll holding three",
+		"reroll holding six,three",
+		"reroll holding five,three",
+		"reroll holding six,five,three",
+		"reroll holding four,three",
+		"reroll holding six,four,three",
+		"reroll holding five,four,three",
+		"reroll holding six,five,four,three",
+		"reroll holding one",
+		"reroll holding six,one",
+		"reroll holding five,one",
+		"reroll holding six,five,one",
+		"reroll holding four,one",
+		"reroll holding six,four,one",
+		"reroll holding five,four,one",
+		"reroll holding six,five,four,one",
+		"reroll holding three,one",
+		"reroll holding six,three,one",
+		"reroll holding five,three,one",
+		"reroll holding six,five,three,one",
+		"reroll holding four,three,one",
+		"reroll holding six,four,three,one",
+		"reroll holding five,four,three,one",
+	}
+	if diff := cmp.Diff(movesStr, want); diff != "" {
 		t.Errorf("moves do not match (-got, +want):\n%s", diff)
 	}
 }
-*/
+
+func TestMaxTheoreticalScore(t *testing.T) {
+	for _, tt := range []struct {
+		ps   playerScorecard
+		want uint16
+	}{
+		{
+			ps: playerScorecard{
+				scoresByCategory: [13]uint16{
+					CAT_TWOS:   4,
+					CAT_THREES: 6,
+					CAT_FOURS:  12,
+					CAT_FIVES:  15,
+					CAT_SIXES:  18,
+				},
+				catMask: 0xFFE,
+			},
+			want: 210,
+		},
+		{
+			ps: playerScorecard{
+				scoresByCategory: [13]uint16{
+					CAT_THREES: 6,
+					CAT_FOURS:  12,
+					CAT_FIVES:  15,
+					CAT_SIXES:  18,
+				},
+				catMask: 0xFFC,
+			},
+			want: 351,
+		},
+		{
+			ps: playerScorecard{
+				scoresByCategory: [13]uint16{
+					CAT_THREES: 6,
+					CAT_FOURS:  12,
+					CAT_FIVES:  15,
+					CAT_SIXES:  18,
+					CAT_YATZY:  50,
+				},
+				catMask: 0x1FFC,
+			},
+			want: 251,
+		},
+		{
+			ps: playerScorecard{
+				catMask: 0x1FFF,
+			},
+			want: 0,
+		},
+		{
+			ps: playerScorecard{
+				catMask: 0x1FFE,
+			},
+			want: 5,
+		},
+		{
+			ps: playerScorecard{
+				catMask: 0x1FFC,
+			},
+			want: 15,
+		},
+		{
+			ps: playerScorecard{
+				catMask: 0x17FF,
+			},
+			want: 30,
+		},
+		{
+			ps: playerScorecard{
+				catMask: 0xFFF,
+			},
+			want: 50,
+		},
+	} {
+		got := tt.ps.maxTheoreticalScore()
+		if got != tt.want {
+			t.Errorf("ps:\n%s\ngot %d; want %d", tt.ps.pretty(), got, tt.want)
+		}
+	}
+}
