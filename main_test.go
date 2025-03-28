@@ -7,136 +7,131 @@ import (
 )
 
 func TestGetRollScoreForCategory(t *testing.T) {
+	opts := []cmp.Option{
+		cmp.AllowUnexported(scoreData{}),
+	}
 	for i, tt := range []struct {
 		r [5]die
 		c category
-		w uint16
+		w scoreData
 	}{
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
 			c: CAT_ONES,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_ONE, DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE},
 			c: CAT_ONES,
-			w: 4,
+			w: scoreData{4, [][]int{{0, 1, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
 			c: CAT_TWOS,
-			w: 6,
+			w: scoreData{6, [][]int{{0, 1, 2}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
 			c: CAT_THREES,
-			w: 3,
+			w: scoreData{3, [][]int{{3}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
 			c: CAT_FOURS,
-			w: 4,
+			w: scoreData{4, [][]int{{4}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
 			c: CAT_FIVES,
-			w: 10,
+			w: scoreData{10, [][]int{{2, 3}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
 			c: CAT_SIXES,
-			w: 6,
+			w: scoreData{6, [][]int{{1}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
 			c: CAT_THREE_OF_A_KIND,
-			w: 13,
+			w: scoreData{13, [][]int{{0, 1, 2}}},
 		},
 		{
 			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_FOUR},
 			c: CAT_THREE_OF_A_KIND,
-			w: 12,
+			w: scoreData{12, [][]int{{0, 1, 2, 3}}},
 		},
 		{
 			r: [5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_TWO, DIE_FOUR},
 			c: CAT_THREE_OF_A_KIND,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_ONE, DIE_TWO, DIE_SIX, DIE_ONE, DIE_ONE},
 			c: CAT_FOUR_OF_A_KIND,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_ONE},
 			c: CAT_FOUR_OF_A_KIND,
-			w: 6,
+			w: scoreData{6, [][]int{{0, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
 			c: CAT_FULL_HOUSE,
-			w: 25,
+			w: scoreData{25, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_FIVE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
 			c: CAT_FULL_HOUSE,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
 			c: CAT_SMALL_STRAIGHT,
-			w: 30,
+			w: scoreData{30, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_THREE},
 			c: CAT_SMALL_STRAIGHT,
-			w: 30,
+			w: scoreData{30, [][]int{{2, 1, 0, 4}, {2, 1, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_THREE, DIE_ONE, DIE_FOUR, DIE_FIVE},
 			c: CAT_SMALL_STRAIGHT,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_SIX, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE},
 			c: CAT_LARGE_STRAIGHT,
-			w: 40,
+			w: scoreData{40, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
 			c: CAT_LARGE_STRAIGHT,
-			w: 40,
+			w: scoreData{40, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_TWO, DIE_FOUR, DIE_FOUR, DIE_FIVE},
 			c: CAT_LARGE_STRAIGHT,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
 			c: CAT_CHANCE,
-			w: 15,
+			w: scoreData{15, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE},
 			c: CAT_YATZY,
-			w: 50,
+			w: scoreData{50, [][]int{{0, 1, 2, 3, 4}}},
 		},
 		{
 			r: [5]die{DIE_FOUR, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
 			c: CAT_YATZY,
-			w: 0,
 		},
 		{
 			r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
 			c: CAT_YATZY,
-			w: 0,
 		},
 	} {
 		r2 := newRollV2_2(tt.r)
 		got := scoresByRoll[r2][tt.c]
-		if got != tt.w {
-			t.Errorf("roll score does not match: input[%d] %+v, %d; got %d; want %d", i, r2.dice(), r2, got, tt.w)
+		if diff := cmp.Diff(got, tt.w, opts...); diff != "" {
+			t.Errorf("roll score does not match (-got, +want): input[%d] %+v, %d;\n%s", i, r2.dice(), r2, diff)
 		}
 	}
 }

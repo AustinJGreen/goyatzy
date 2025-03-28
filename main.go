@@ -1,12 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"container/heap"
 	"context"
 	"fmt"
 	"log"
 	"math/bits"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -42,12 +44,18 @@ import (
 // potential optimizations:
 // - faster rand (or different ones)
 // - pools for object allocation
-// - precomputed scores per unique roll (could hash roll)
+
+type scoreData struct {
+	score uint16
+	used  [][]int // dice indices that could be used for the score.
+}
 
 // getRollScoreForCategory returns the score
 // that a roll would earn for a category.
-func getRollScoreForCategory(r2 rollV2, c category) uint16 {
+func getRollScoreForCategory(r2 rollV2, c category) scoreData {
 	r := r2.dice()
+	used := make([][]int, 1, 2)
+	used[0] = make([]int, 0, 5)
 	switch c {
 	case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
 		var score uint16
@@ -55,23 +63,43 @@ func getRollScoreForCategory(r2 rollV2, c category) uint16 {
 		for d := 0; d < 5; d++ {
 			if r[d] == val {
 				score += uint16(val)
+				used[0] = append(used[0], d)
 			}
 		}
-		return score
+		if score == 0 {
+			return scoreData{}
+		}
+		return scoreData{
+			score: score,
+			used:  used,
+		}
 	case CAT_THREE_OF_A_KIND, CAT_FOUR_OF_A_KIND:
 		var freqs [7]byte
 		var maxFreq byte
+		var maxFreqDieIdx int
 		var sum uint16
 		for d := 0; d < 5; d++ {
 			freqs[r[d]]++
+			if freqs[r[d]] > maxFreq {
+				maxFreq = freqs[r[d]]
+				maxFreqDieIdx = d
+			}
 			maxFreq = max(maxFreq, freqs[r[d]])
 			sum += uint16(r[d])
 		}
 		req := byte(3 + (c - CAT_THREE_OF_A_KIND))
 		if maxFreq >= req {
-			return sum
+			for d := range 5 {
+				if r[d] == r[maxFreqDieIdx] {
+					used[0] = append(used[0], d)
+				}
+			}
+			return scoreData{
+				score: sum,
+				used:  used,
+			}
 		}
-		return 0
+		return scoreData{}
 	case CAT_FULL_HOUSE:
 		var freqs [7]byte
 		for d := 0; d < 5; d++ {
@@ -86,56 +114,91 @@ func getRollScoreForCategory(r2 rollV2, c category) uint16 {
 			}
 		}
 		if hasTwo && hasThree {
-			return 25
-		}
-		return 0
-	case CAT_SMALL_STRAIGHT, CAT_LARGE_STRAIGHT:
-		var minV, maxV int
-		var freqs [7]byte
-		for d := 0; d < 5; d++ {
-			c := int(r[d])
-			if d == 0 {
-				minV = c
-				maxV = c
-			} else {
-				minV = min(minV, c)
-				maxV = max(maxV, c)
+			return scoreData{
+				score: 25,
+				used:  [][]int{{0, 1, 2, 3, 4}},
 			}
-			freqs[r[d]]++
+		}
+		return scoreData{}
+	case CAT_SMALL_STRAIGHT, CAT_LARGE_STRAIGHT:
+		type indexedDie struct {
+			val die
+			idx int
 		}
 
-		onMinRun, onMaxRun := true, true
-		req := int(4 + (c - CAT_SMALL_STRAIGHT))
-		for i := 0; i < req; i++ {
-			if minV+i >= 7 || freqs[minV+i] == 0 {
-				onMinRun = false
-			}
-			if maxV-i <= 0 || freqs[maxV-i] == 0 {
-				onMaxRun = false
+		indexed := make([]indexedDie, len(r))
+		for i, v := range r {
+			indexed[i] = indexedDie{v, i}
+		}
+
+		slices.SortFunc(indexed, func(i, j indexedDie) int {
+			return cmp.Compare(i.val, j.val)
+		})
+
+		var sortedValues [5]die
+		indexes := make([]int, len(r))
+		for i, v := range indexed {
+			sortedValues[i] = v.val
+			indexes[i] = v.idx
+		}
+
+		var seqStartAt int
+		var seqStartAtB *int
+		incConsec := 0
+		for d := 1; d < 5; d++ {
+			if indexed[d-1].val == indexed[d].val {
+				c := d
+				seqStartAtB = &c
+				continue
+			} else if indexed[d-1].val == indexed[d].val-1 {
+				incConsec += 1
+			} else {
+				// gap
+				incConsec = 0
+				seqStartAt = d + 1
 			}
 		}
-		if onMinRun || onMaxRun {
-			switch c {
-			case CAT_SMALL_STRAIGHT:
-				return 30
-			default:
-				return 40
+		switch {
+		case c == CAT_SMALL_STRAIGHT && incConsec >= 3:
+			for i := seqStartAt; i < 5; i++ {
+				used[0] = append(used[0], indexes[i])
+			}
+			if seqStartAtB != nil {
+				used = append(used, []int{})
+				for j := *seqStartAtB; j < 5; j++ {
+					used[1] = append(used[1], indexes[j])
+				}
+			}
+			return scoreData{
+				score: 30,
+				used:  used,
+			}
+		case c == CAT_LARGE_STRAIGHT && incConsec >= 4:
+			return scoreData{
+				score: 40,
+				used:  [][]int{{0, 1, 2, 3, 4}},
 			}
 		}
-		return 0
+		return scoreData{}
 	case CAT_YATZY:
 		for d := 1; d < 5; d++ {
 			if r[d-1] != r[d] {
-				return 0
+				return scoreData{}
 			}
 		}
-		return 50
+		return scoreData{
+			score: 50,
+			used:  [][]int{{0, 1, 2, 3, 4}},
+		}
 	case CAT_CHANCE:
 		var sum uint16
 		for d := 0; d < 5; d++ {
 			sum += uint16(r[d])
 		}
-		return sum
+		return scoreData{
+			score: sum,
+			used:  [][]int{{0, 1, 2, 3, 4}},
+		}
 	default:
 		panic("unimplemented")
 	}
@@ -180,7 +243,7 @@ func (r2 rollV2) String() string {
 }
 
 var rolls []rollV2
-var scoresByRoll map[rollV2][13]uint16
+var scoresByRoll map[rollV2][13]scoreData
 
 func getDiceCombos(n int) [][]die {
 	if n == 0 {
@@ -216,12 +279,12 @@ func init() {
 		diceCombinations = append(diceCombinations, indices)
 	}
 
-	scoresByRoll = make(map[rollV2][13]uint16)
+	scoresByRoll = make(map[rollV2][13]scoreData)
 	for _, combos := range getDiceCombos(5) {
 		r2 := newRollV2(combos[0], combos[1], combos[2], combos[3], combos[4])
 		rolls = append(rolls, r2)
 
-		var scores [13]uint16
+		var scores [13]scoreData
 		for c := CAT_ONES; c <= CAT_YATZY; c++ {
 			scores[c] = getRollScoreForCategory(r2, category(c))
 		}
@@ -436,10 +499,10 @@ func (ps playerScorecard) update(r rollV2, c category) playerScorecard {
 	var next playerScorecard
 	next.catMask = ps.catMask
 	next.scoresByCategory = ps.scoresByCategory
-	next.scoresByCategory[c] = scoresByRoll[r][c]
+	next.scoresByCategory[c] = scoresByRoll[r][c].score
 	next.catMask = ps.catMask | uint16(1<<c)
 
-	rs := scoresByRoll[r][CAT_YATZY]
+	rs := scoresByRoll[r][CAT_YATZY].score
 	if rs == 0 {
 		return next
 	}
