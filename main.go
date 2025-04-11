@@ -280,6 +280,14 @@ func (r2 rollV2) String() string {
 var rolls []rollV2
 var scoresByRoll map[rollV2][13]scoreData
 
+// subset die -> EV by category
+// ex: [one one one one] -> yatzy would be 1/6 so EV would be (50 * 1/6)
+// ex: [one two three four] -> large straight would be (1/6 * 40)
+// ex: [one two three four] -> yatzy would be 0
+var possibleSubDieByScore [13]map[int][]die
+
+// var expectedValueBySubset map[int][13]float64
+
 func getDiceCombos(n int) [][]die {
 	if n == 0 {
 		return nil
@@ -314,6 +322,10 @@ func init() {
 		diceCombinations = append(diceCombinations, indices)
 	}
 
+	for c := CAT_ONES; c <= CAT_YATZY; c++ {
+		possibleSubDieByScore[c] = make(map[int][]die)
+	}
+
 	scoresByRoll = make(map[rollV2][13]scoreData)
 	for _, combos := range getDiceCombos(5) {
 		r2 := newRollV2(combos[0], combos[1], combos[2], combos[3], combos[4])
@@ -321,9 +333,27 @@ func init() {
 
 		var scores [13]scoreData
 		for c := CAT_ONES; c <= CAT_YATZY; c++ {
-			scores[c] = getScoreData(r2, category(c))
+			scoreData := getScoreData(r2, category(c))
+			scores[c] = scoreData
+
+			if scoreData.score > 0 {
+				var usedToScore []die
+				for _, used := range scoreData.used {
+					for _, idx := range used {
+						usedToScore = append(usedToScore, r2.die(idx))
+					}
+				}
+
+				possibleSubDieByScore[c][hash(usedToScore)] = usedToScore
+			}
 		}
 		scoresByRoll[r2] = scores
+	}
+
+	for c, m := range possibleSubDieByScore {
+		for _, d := range m {
+			fmt.Printf("can score %s with %+v\n", category(c), d)
+		}
 	}
 }
 
@@ -913,6 +943,21 @@ think:
 		totalGamesExplored += stats.totalGames
 	}
 
+	// Try ordering rerolls by ones that allow for any available category left.
+	/*
+		ps := g.scorecards[playerIdx]
+		rerollPotentials := make(map[int]int) // moveIdx -> EV
+		for _, m := range moves {
+			if m.reroll {
+				for cat, score := range ps.scoresByCategory {
+					catUsed := ps.catMask&(1<<cat) != 0
+					if !catUsed {
+						// expectedValueBySubset[moveHas(m)] = EV
+					}
+				}
+			}
+		}*/
+
 	sort.Slice(sMoves, func(i, j int) bool {
 		is, js := sMoves[i].stats, sMoves[j].stats
 		return is.topScores.avg() > js.topScores.avg()
@@ -927,7 +972,7 @@ think:
 		avgScore := float64(stats.totalScore) / float64(stats.totalGames)
 		wonPct := float64(stats.totalWon) / float64(stats.totalGames)
 		move := moves[sm.moveIdx]
-		fmt.Printf("[%d]: %s (%d games) (%.2f avg) (%d max) (%.2f top n avg) (%.2f won pct)\n", i, move, stats.totalGames, avgScore, stats.maxScore, stats.topScores.avg(), wonPct)
+		fmt.Printf("[%d]: %s (%d games) (%.4f avg) (%d max) (%.4f top n avg) (%.2f won pct)\n", i, move, stats.totalGames, avgScore, stats.maxScore, stats.topScores.avg(), wonPct)
 	}
 	return sMoves[0].moveIdx
 }
