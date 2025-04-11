@@ -50,9 +50,7 @@ type scoreData struct {
 	used  [][]int // dice indices that could be used for the score.
 }
 
-// getRollScoreForCategory returns the score
-// that a roll would earn for a category.
-func getRollScoreForCategory(r2 rollV2, c category) scoreData {
+func getScoreData(r2 rollV2, c category) scoreData {
 	r := r2.dice()
 	used := make([][]int, 1, 2)
 	used[0] = make([]int, 0, 5)
@@ -126,57 +124,94 @@ func getRollScoreForCategory(r2 rollV2, c category) scoreData {
 			idx int
 		}
 
-		indexed := make([]indexedDie, len(r))
+		rSorted := make([]indexedDie, len(r))
 		for i, v := range r {
-			indexed[i] = indexedDie{v, i}
+			rSorted[i] = indexedDie{v, i}
 		}
 
-		slices.SortFunc(indexed, func(i, j indexedDie) int {
+		slices.SortFunc(rSorted, func(i, j indexedDie) int {
 			return cmp.Compare(i.val, j.val)
 		})
 
-		var sortedValues [5]die
-		indexes := make([]int, len(r))
-		for i, v := range indexed {
-			sortedValues[i] = v.val
-			indexes[i] = v.idx
+		valToIdx := make(map[die][]int)
+		for _, rs := range rSorted {
+			valToIdx[rs.val] = append(valToIdx[rs.val], rs.idx)
 		}
 
-		var seqStartAt int
-		var seqStartAtB *int
-		incConsec := 0
-		for d := 1; d < 5; d++ {
-			if indexed[d-1].val == indexed[d].val {
-				c := d
-				seqStartAtB = &c
-				continue
-			} else if indexed[d-1].val == indexed[d].val-1 {
-				incConsec += 1
+		getConseq := func(idx int, cnt int) ([][]int, bool) {
+			last := rSorted[idx].val
+
+			conseq := 1
+			seqs := [][]int{{rSorted[idx].idx}}
+			for conseq < cnt {
+				indices, ok := valToIdx[last+1]
+				if !ok {
+					break
+				}
+				switch len(indices) {
+				case 2:
+					if len(seqs) == 0 {
+						for _, idx := range indices {
+							seqs = append(seqs, []int{idx})
+						}
+					} else {
+						seqs = append(seqs, []int{})
+						seqs[1] = append(seqs[1], seqs[0]...)
+						for i, idx := range indices {
+							seqs[i] = append(seqs[i], idx)
+						}
+					}
+				case 1:
+					if len(seqs) == 0 {
+						seqs = append(seqs, []int{indices[0]})
+					} else {
+
+						for i, s := range seqs {
+							seqs[i] = append(s, indices[0])
+						}
+					}
+				}
+
+				conseq++
+				last++
+			}
+
+			if conseq >= cnt {
+				return seqs, true
 			} else {
-				// gap
-				incConsec = 0
-				seqStartAt = d + 1
+				return nil, false
 			}
 		}
-		switch {
-		case c == CAT_SMALL_STRAIGHT && incConsec >= 3:
-			for i := seqStartAt; i < 5; i++ {
-				used[0] = append(used[0], indexes[i])
+
+		switch c {
+		case CAT_SMALL_STRAIGHT:
+			used1, ok1 := getConseq(0, 4)
+			used2, ok2 := getConseq(1, 4)
+			if !ok1 && !ok2 {
+				break
 			}
-			if seqStartAtB != nil {
-				used = append(used, []int{})
-				for j := *seqStartAtB; j < 5; j++ {
-					used[1] = append(used[1], indexes[j])
-				}
+			switch {
+			case ok1 && ok2:
+				used = [][]int{used1[0], used2[0]}
+			case ok1:
+				used = used1
+			case ok2:
+				used = used2
 			}
 			return scoreData{
 				score: 30,
 				used:  used,
 			}
-		case c == CAT_LARGE_STRAIGHT && incConsec >= 4:
 			return scoreData{
-				score: 40,
-				used:  [][]int{{0, 1, 2, 3, 4}},
+				score: 30,
+				used:  used,
+			}
+		case CAT_LARGE_STRAIGHT:
+			if used, ok := getConseq(0, 5); ok {
+				return scoreData{
+					score: 40,
+					used:  used,
+				}
 			}
 		}
 		return scoreData{}
@@ -286,7 +321,7 @@ func init() {
 
 		var scores [13]scoreData
 		for c := CAT_ONES; c <= CAT_YATZY; c++ {
-			scores[c] = getRollScoreForCategory(r2, category(c))
+			scores[c] = getScoreData(r2, category(c))
 		}
 		scoresByRoll[r2] = scores
 	}
