@@ -57,10 +57,10 @@ func getScoreData(r2 rollV2, c category) scoreData {
 	switch c {
 	case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
 		var score uint16
-		val := die(c + 1) // hack: based on cat_xxx index.
+		catScoreVal := uint16(1 + (c - CAT_ONES))
 		for d := 0; d < 5; d++ {
-			if r[d] == val {
-				score += uint16(val)
+			if dieCat(r[d]) == c {
+				score += catScoreVal
 				used[0] = append(used[0], d)
 			}
 		}
@@ -307,8 +307,6 @@ func getDiceCombos(n int) [][]die {
 }
 
 func init() {
-	// We want
-	// 0b11111
 	for i := 0; i <= 0b11111; i++ {
 		var indices []int
 		for j := 0; j < 5; j++ {
@@ -337,24 +335,25 @@ func init() {
 			scores[c] = scoreData
 
 			if scoreData.score > 0 {
-				var usedToScore []die
 				for _, used := range scoreData.used {
+					var usedToScore []die
 					for _, idx := range used {
 						usedToScore = append(usedToScore, r2.die(idx))
 					}
+					possibleSubDieByScore[c][hash(usedToScore)] = usedToScore
 				}
-
-				possibleSubDieByScore[c][hash(usedToScore)] = usedToScore
 			}
 		}
 		scoresByRoll[r2] = scores
 	}
 
-	for c, m := range possibleSubDieByScore {
-		for _, d := range m {
-			fmt.Printf("can score %s with %+v\n", category(c), d)
+	/*
+		for c, m := range possibleSubDieByScore {
+			for _, d := range m {
+				fmt.Printf("can score %s with %+v\n", category(c), d)
+			}
 		}
-	}
+	*/
 }
 
 type die byte
@@ -450,6 +449,10 @@ func (c category) String() string {
 	}[c]
 }
 
+func dieCat(d die) category {
+	return [...]category{CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES}[d-DIE_ONE]
+}
+
 const AllFilled = 0x1FFF // 13 categories
 
 type playerScorecard struct {
@@ -523,7 +526,7 @@ func (ps playerScorecard) maxTheoreticalScore() uint16 {
 		cat := category(bits.TrailingZeros16(unusedMask))
 		switch cat {
 		case CAT_ONES, CAT_TWOS, CAT_THREES, CAT_FOURS, CAT_FIVES, CAT_SIXES:
-			val := die(cat + 1) // hack: based on cat_xxx index.
+			val := 1 + (cat - CAT_ONES)
 			theoreticalMaxLeft += uint16(val * 5)
 		case CAT_THREE_OF_A_KIND, CAT_FOUR_OF_A_KIND, CAT_SMALL_STRAIGHT, CAT_CHANCE:
 			theoreticalMaxLeft += 30
@@ -560,23 +563,30 @@ const (
 // update gets the next scorecard calculated after a roll and category are chosen.
 // This function does not check that the category has not been used.
 func (ps playerScorecard) update(r rollV2, c category) playerScorecard {
-	// debug: check catMask does not have c set.
 	var next playerScorecard
+	rs := scoresByRoll[r][c].score
 	next.catMask = ps.catMask
 	next.scoresByCategory = ps.scoresByCategory
-	next.scoresByCategory[c] = scoresByRoll[r][c].score
+	next.scoresByCategory[c] = rs
 	next.catMask = ps.catMask | uint16(1<<c)
 
-	rs := scoresByRoll[r][CAT_YATZY].score
-	if rs == 0 {
+	if scoresByRoll[r][CAT_YATZY].score == 0 {
 		return next
 	}
+
 	hasScoredYatzy := ps.scoresByCategory[CAT_YATZY] > 0
-	if !hasScoredYatzy {
-		return next // no joker if you haven't scored already
+	if hasScoredYatzy {
+		next.scoresByCategory[CAT_YATZY] += yatzyBonus
 	}
 
-	next.scoresByCategory[CAT_YATZY] += yatzyBonus
+	// Only allow a joker in the lower section if the respective upper section
+	// category is filled.
+	die := r.die(0)
+	dieCat := dieCat(die)
+	if ps.catMask&(1<<dieCat) == 0 {
+		return next // must take points in upper section
+	}
+
 	switch c {
 	// other c's already covered -- add ones that joker helps.
 	case CAT_FULL_HOUSE:
@@ -757,16 +767,16 @@ func (g *game) doPly() bool {
 	g.curTurn.rollCnt = 1
 	curPlayer := g.curPlayerIdx
 	for g.curPlayerIdx == curPlayer {
-		log.Printf("player [%d]: rolled %s", curPlayer, g.curTurn.currentRoll)
+		log.Printf("player [%s]: rolled %s", g.players[curPlayer], g.curTurn.currentRoll)
 		moves := g.getMovesForCurrentPlayer(g.curTurn.currentRoll)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		moveIdx := g.players[curPlayer].pickMove(ctx, g, moves)
 		cancel()
 		move := moves[moveIdx]
-		log.Printf("player [%d]: %s", curPlayer, move)
+		log.Printf("player [%s]: %s", g.players[curPlayer], move)
 		if !move.reroll {
 			log.Print(move.selection.pretty())
-			log.Printf("player [%d]: has %d points", curPlayer, move.selection.score())
+			log.Printf("player [%s]: has %d points", g.players[curPlayer], move.selection.score())
 		}
 		if g.doMove(move) {
 			return true
@@ -779,6 +789,8 @@ type randomPlayer struct {
 	rng *rand.Rand
 }
 
+func (rp *randomPlayer) String() string { return "random player" }
+
 func (rp *randomPlayer) pickMove(_ context.Context, _ *game, moves []*move) int {
 	return rp.rng.IntN(len(moves))
 }
@@ -786,6 +798,8 @@ func (rp *randomPlayer) pickMove(_ context.Context, _ *game, moves []*move) int 
 type monteCarloPlayer struct {
 	rng *rand.Rand
 }
+
+func (mcp *monteCarloPlayer) String() string { return "MC" }
 
 type result struct {
 	moveIdx int
@@ -860,7 +874,7 @@ func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*mov
 	// than re-rolling with any 3 as we could always fallback and select our original choice.
 
 	playerIdx := g.curPlayerIdx
-	log.Printf("Thinking for player %d with %d workers.", playerIdx, workers)
+	log.Printf("Thinking with %d workers.", workers)
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(ctx context.Context) {
@@ -885,7 +899,7 @@ func (mcp *monteCarloPlayer) pickMove(ctx context.Context, g *game, moves []*mov
 				case results <- result{
 					moveIdx: moveIdx,
 					score:   selfScore,
-					won:     selfScore >= opponentScore, // anything that isn't a loss is a win?
+					won:     selfScore >= opponentScore, // anything that isn't a loss is a win :)
 				}:
 				}
 			}

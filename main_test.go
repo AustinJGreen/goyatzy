@@ -6,6 +6,22 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func DieCatTest(t *testing.T) {
+	for _, tt := range []struct {
+		i die
+		w category
+	}{
+		{DIE_ONE, CAT_ONES},
+		{DIE_TWO, CAT_TWOS},
+		{DIE_SIX, CAT_SIXES},
+	} {
+		got := dieCat(tt.i)
+		if got != tt.w {
+			t.Errorf("for dieCat(%s) got %s; want %s", tt.i, got, tt.w)
+		}
+	}
+}
+
 func TestGetRollScoreForCategory(t *testing.T) {
 	opts := []cmp.Option{
 		cmp.AllowUnexported(scoreData{}),
@@ -20,114 +36,113 @@ func TestGetRollScoreForCategory(t *testing.T) {
 			c: CAT_SMALL_STRAIGHT,
 			w: scoreData{30, [][]int{{2, 1, 0, 3}, {2, 1, 4, 3}}},
 		},
-		/*
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
-				c: CAT_ONES,
-			},
-			{
-				r: [5]die{DIE_ONE, DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE},
-				c: CAT_ONES,
-				w: scoreData{4, [][]int{{0, 1, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
-				c: CAT_TWOS,
-				w: scoreData{6, [][]int{{0, 1, 2}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
-				c: CAT_THREES,
-				w: scoreData{3, [][]int{{3}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
-				c: CAT_FOURS,
-				w: scoreData{4, [][]int{{4}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
-				c: CAT_FIVES,
-				w: scoreData{10, [][]int{{2, 3}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
-				c: CAT_SIXES,
-				w: scoreData{6, [][]int{{1}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
-				c: CAT_THREE_OF_A_KIND,
-				w: scoreData{13, [][]int{{0, 1, 2}}},
-			},
-			{
-				r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_FOUR},
-				c: CAT_THREE_OF_A_KIND,
-				w: scoreData{12, [][]int{{0, 1, 2, 3}}},
-			},
-			{
-				r: [5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_TWO, DIE_FOUR},
-				c: CAT_THREE_OF_A_KIND,
-			},
-			{
-				r: [5]die{DIE_ONE, DIE_TWO, DIE_SIX, DIE_ONE, DIE_ONE},
-				c: CAT_FOUR_OF_A_KIND,
-			},
-			{
-				r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_ONE},
-				c: CAT_FOUR_OF_A_KIND,
-				w: scoreData{6, [][]int{{0, 2, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
-				c: CAT_FULL_HOUSE,
-				w: scoreData{25, [][]int{{0, 1, 2, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_FIVE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
-				c: CAT_FULL_HOUSE,
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
-				c: CAT_SMALL_STRAIGHT,
-				w: scoreData{30, [][]int{{2, 1, 0, 3}, {1, 0, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_THREE, DIE_ONE, DIE_FOUR, DIE_FIVE},
-				c: CAT_SMALL_STRAIGHT,
-			},
-			{
-				r: [5]die{DIE_SIX, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE},
-				c: CAT_LARGE_STRAIGHT,
-				w: scoreData{40, [][]int{{1, 2, 3, 4, 0}}},
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
-				c: CAT_LARGE_STRAIGHT,
-				w: scoreData{40, [][]int{{2, 1, 0, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_TWO, DIE_FOUR, DIE_FOUR, DIE_FIVE},
-				c: CAT_LARGE_STRAIGHT,
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
-				c: CAT_CHANCE,
-				w: scoreData{15, [][]int{{0, 1, 2, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE},
-				c: CAT_YATZY,
-				w: scoreData{50, [][]int{{0, 1, 2, 3, 4}}},
-			},
-			{
-				r: [5]die{DIE_FOUR, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
-				c: CAT_YATZY,
-			},
-			{
-				r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
-				c: CAT_YATZY,
-			},*/
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
+			c: CAT_ONES,
+		},
+		{
+			r: [5]die{DIE_ONE, DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE},
+			c: CAT_ONES,
+			w: scoreData{4, [][]int{{0, 1, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
+			c: CAT_TWOS,
+			w: scoreData{6, [][]int{{0, 1, 2}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
+			c: CAT_THREES,
+			w: scoreData{3, [][]int{{3}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
+			c: CAT_FOURS,
+			w: scoreData{4, [][]int{{4}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
+			c: CAT_FIVES,
+			w: scoreData{10, [][]int{{2, 3}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_SIX, DIE_FIVE, DIE_FIVE, DIE_FOUR},
+			c: CAT_SIXES,
+			w: scoreData{6, [][]int{{1}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_THREE, DIE_FOUR},
+			c: CAT_THREE_OF_A_KIND,
+			w: scoreData{13, [][]int{{0, 1, 2}}},
+		},
+		{
+			r: [5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_FOUR},
+			c: CAT_THREE_OF_A_KIND,
+			w: scoreData{12, [][]int{{0, 1, 2, 3}}},
+		},
+		{
+			r: [5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_TWO, DIE_FOUR},
+			c: CAT_THREE_OF_A_KIND,
+		},
+		{
+			r: [5]die{DIE_ONE, DIE_TWO, DIE_SIX, DIE_ONE, DIE_ONE},
+			c: CAT_FOUR_OF_A_KIND,
+		},
+		{
+			r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_ONE},
+			c: CAT_FOUR_OF_A_KIND,
+			w: scoreData{6, [][]int{{0, 2, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_ONE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
+			c: CAT_FULL_HOUSE,
+			w: scoreData{25, [][]int{{0, 1, 2, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_FIVE, DIE_TWO, DIE_ONE, DIE_ONE, DIE_TWO},
+			c: CAT_FULL_HOUSE,
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
+			c: CAT_SMALL_STRAIGHT,
+			w: scoreData{30, [][]int{{2, 1, 0, 3}, {1, 0, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_THREE, DIE_ONE, DIE_FOUR, DIE_FIVE},
+			c: CAT_SMALL_STRAIGHT,
+		},
+		{
+			r: [5]die{DIE_SIX, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE},
+			c: CAT_LARGE_STRAIGHT,
+			w: scoreData{40, [][]int{{1, 2, 3, 4, 0}}},
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
+			c: CAT_LARGE_STRAIGHT,
+			w: scoreData{40, [][]int{{2, 1, 0, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_TWO, DIE_FOUR, DIE_FOUR, DIE_FIVE},
+			c: CAT_LARGE_STRAIGHT,
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_TWO, DIE_ONE, DIE_FOUR, DIE_FIVE},
+			c: CAT_CHANCE,
+			w: scoreData{15, [][]int{{0, 1, 2, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE},
+			c: CAT_YATZY,
+			w: scoreData{50, [][]int{{0, 1, 2, 3, 4}}},
+		},
+		{
+			r: [5]die{DIE_FOUR, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
+			c: CAT_YATZY,
+		},
+		{
+			r: [5]die{DIE_THREE, DIE_THREE, DIE_THREE, DIE_THREE, DIE_FOUR},
+			c: CAT_YATZY,
+		},
 	} {
 		r2 := newRollV2_2(tt.r)
 		got := scoresByRoll[r2][tt.c]
@@ -143,63 +158,123 @@ func TestPlayerScorecardUpdate(t *testing.T) {
 	}
 	var ps playerScorecard
 
-	// 1, 2, 3, 4, 5 - large straight
+	t.Run("seriesA", func(t *testing.T) {
+		// 1. 1, 2, 3, 4, 5 - large straight
+		got := ps.update(newRollV2_2([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE}), CAT_LARGE_STRAIGHT)
+		if diff := cmp.Diff(ps, playerScorecard{}, opts...); diff != "" {
+			t.Errorf("original scorecard was modified (-got, +want):\n%s", diff)
+		}
+		want := playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_LARGE_STRAIGHT: 40,
+			},
+			catMask: 1024,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
 
-	got := ps.update(newRollV2_2([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FOUR, DIE_FIVE}), CAT_LARGE_STRAIGHT)
-	if diff := cmp.Diff(ps, playerScorecard{}, opts...); diff != "" {
-		t.Errorf("original scorecard was modified (-got, +want):\n%s", diff)
-	}
-	want := playerScorecard{
-		scoresByCategory: [13]uint16{
-			CAT_LARGE_STRAIGHT: 40,
-		},
-		catMask: 1024,
-	}
-	if diff := cmp.Diff(got, want, opts...); diff != "" {
-		t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
-	}
+		// 2. 1, 1, 1, 1, 1 - take ones
+		got = got.update(newRollV2_2([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE}), CAT_ONES)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:           5,
+				CAT_LARGE_STRAIGHT: 40,
+			},
+			catMask: 1025,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
 
-	// 2. 1, 1, 1, 1, 1 - take ones
-	got = got.update(newRollV2_2([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE}), CAT_ONES)
-	want = playerScorecard{
-		scoresByCategory: [13]uint16{
-			CAT_ONES:           5,
-			CAT_LARGE_STRAIGHT: 40,
-		},
-		catMask: 1025,
-	}
-	if diff := cmp.Diff(got, want, opts...); diff != "" {
-		t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
-	}
+		// 3. 2, 2, 2, 2, 2 - take yatzy
+		got = got.update(newRollV2_2([5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO}), CAT_YATZY)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:           5,
+				CAT_LARGE_STRAIGHT: 40,
+				CAT_YATZY:          50,
+			},
+			catMask: 5121,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
 
-	// 3. 2, 2, 2, 2, 2 - take yatzy
-	got = got.update(newRollV2_2([5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO}), CAT_YATZY)
-	want = playerScorecard{
-		scoresByCategory: [13]uint16{
-			CAT_ONES:           5,
-			CAT_LARGE_STRAIGHT: 40,
-			CAT_YATZY:          50,
-		},
-		catMask: 5121,
-	}
-	if diff := cmp.Diff(got, want, opts...); diff != "" {
-		t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
-	}
+		// 4. All six - cannot use joker on full house (must take six) + see 100 bonus
+		got = got.update(newRollV2_2([5]die{DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX}), CAT_FULL_HOUSE)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:           5,
+				CAT_FULL_HOUSE:     0,
+				CAT_LARGE_STRAIGHT: 40,
+				CAT_YATZY:          150,
+			},
+			catMask: 5377,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
+	})
 
-	// 4. All six - use joker on full house + see 100 bonus
-	got = got.update(newRollV2_2([5]die{DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX, DIE_SIX}), CAT_FULL_HOUSE)
-	want = playerScorecard{
-		scoresByCategory: [13]uint16{
-			CAT_ONES:           5,
-			CAT_FULL_HOUSE:     25,
-			CAT_LARGE_STRAIGHT: 40,
-			CAT_YATZY:          150,
-		},
-		catMask: 5377,
-	}
-	if diff := cmp.Diff(got, want, opts...); diff != "" {
-		t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
-	}
+	t.Run("seriesB", func(t *testing.T) {
+		// 1. 1, 1, 1, 1, 1
+		got := ps.update(newRollV2_2([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_TWO}), CAT_ONES)
+		if diff := cmp.Diff(ps, playerScorecard{}, opts...); diff != "" {
+			t.Errorf("original scorecard was modified (-got, +want):\n%s", diff)
+		}
+		want := playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES: 4,
+			},
+			catMask: 1,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
+
+		// 2. 1, 3, 4, 5, 6 - take yatzy
+		got = got.update(newRollV2_2([5]die{DIE_ONE, DIE_TWO, DIE_THREE, DIE_FIVE, DIE_SIX}), CAT_YATZY)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:  4,
+				CAT_YATZY: 0,
+			},
+			catMask: 4097,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
+
+		// 3. 2, 2, 2, 2, 2 - take large straight
+		got = got.update(newRollV2_2([5]die{DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO, DIE_TWO}), CAT_LARGE_STRAIGHT)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:           4,
+				CAT_LARGE_STRAIGHT: 0,
+				CAT_YATZY:          0,
+			},
+			catMask: 5121,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
+
+		// 4. All ones - use joker on full house
+		got = got.update(newRollV2_2([5]die{DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE, DIE_ONE}), CAT_FULL_HOUSE)
+		want = playerScorecard{
+			scoresByCategory: [13]uint16{
+				CAT_ONES:           4,
+				CAT_FULL_HOUSE:     25,
+				CAT_LARGE_STRAIGHT: 0,
+				CAT_YATZY:          0,
+			},
+			catMask: 5377,
+		}
+		if diff := cmp.Diff(got, want, opts...); diff != "" {
+			t.Errorf("scorecards do not match (-got, +want):\n%s", diff)
+		}
+	})
 }
 
 func TestGetTurnsLeft(t *testing.T) {
